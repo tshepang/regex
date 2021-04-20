@@ -838,7 +838,7 @@ impl<'c> ExecNoSync<'c> {
         use dfa::Result::*;
 
         let lcs = self.ro.suffixes.lcs();
-        debug_assert!(lcs.len() >= 1);
+        debug_assert!(lcs.needle().len() >= 1);
         let mut start = original_start;
         let mut end = start;
         let mut last_literal = start;
@@ -847,7 +847,7 @@ impl<'c> ExecNoSync<'c> {
                 None => return Some(NoMatch(text.len())),
                 Some(i) => i,
             };
-            end = last_literal + lcs.len();
+            end = last_literal + lcs.needle().len();
             match dfa::Fsm::reverse(
                 &self.ro.dfa_reverse,
                 self.cache.value(),
@@ -1239,7 +1239,11 @@ impl<'c> ExecNoSync<'c> {
             // Only do this check if the haystack is big (>1MB).
             if text.len() > (1 << 20) && ro.nfa.is_anchored_end {
                 let lcs = ro.suffixes.lcs();
-                if lcs.len() >= 1 && !lcs.is_suffix(text) {
+                let n = lcs.needle();
+                if n.len() >= 1
+                    && (n.len() > text.len()
+                        || n != &text[text.len() - n.len()..])
+                {
                     return false;
                 }
             }
@@ -1449,8 +1453,8 @@ impl ExecReadOnly {
         if self.suffixes.is_empty() {
             return false;
         }
-        let lcs_len = self.suffixes.lcs().char_len();
-        lcs_len >= 3 && lcs_len > self.dfa.prefixes.lcp().char_len()
+        let lcs_len = self.suffixes.lcs().needle().len();
+        lcs_len >= 3 && lcs_len > self.dfa.prefixes.lcp().needle().len()
     }
 
     fn new_pool(ro: &Arc<ExecReadOnly>) -> Box<Pool<ProgramCache>> {

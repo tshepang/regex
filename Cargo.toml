@@ -15,6 +15,9 @@ categories = ["text-processing"]
 autotests = false
 exclude = ["/scripts/*", "/.github/*"]
 
+[patch.crates-io]
+memchr = { path = "/home/andrew/rust/memchr" }
+
 [workspace]
 members = [
   "bench", "regex-capi", "regex-debug", "regex-syntax",

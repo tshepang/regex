@@ -2,7 +2,7 @@ use std::cmp;
 use std::mem;
 
 use aho_corasick::{self, packed, AhoCorasick, AhoCorasickBuilder};
-use memchr::{memchr, memchr2, memchr3};
+use memchr::{memchr, memchr2, memchr3, memmem};
 use syntax::hir::literal::{Literal, Literals};
 
 use freqs::BYTE_FREQUENCIES;
@@ -15,8 +15,10 @@ use freqs::BYTE_FREQUENCIES;
 #[derive(Clone, Debug)]
 pub struct LiteralSearcher {
     complete: bool,
-    lcp: FreqyPacked,
-    lcs: FreqyPacked,
+    // lcp: FreqyPacked,
+    // lcs: FreqyPacked,
+    lcp: memmem::Finder<'static>,
+    lcs: memmem::Finder<'static>,
     matcher: Matcher,
 }
 
@@ -26,6 +28,8 @@ enum Matcher {
     Empty,
     /// A set of four or more single byte literals.
     Bytes(SingleByteSet),
+    /// A single substring, find using memmem from memchr crate.
+    Memmem(memmem::Finder<'static>),
     /// A single substring, find using memchr and frequency analysis.
     FreqyPacked(FreqyPacked),
     /// A single substring, find using Boyer-Moore.
@@ -63,8 +67,12 @@ impl LiteralSearcher {
         let complete = lits.all_complete();
         LiteralSearcher {
             complete: complete,
-            lcp: FreqyPacked::new(lits.longest_common_prefix().to_vec()),
-            lcs: FreqyPacked::new(lits.longest_common_suffix().to_vec()),
+            // lcp: FreqyPacked::new(lits.longest_common_prefix().to_vec()),
+            // lcs: FreqyPacked::new(lits.longest_common_suffix().to_vec()),
+            lcp: memmem::Finder::new(lits.longest_common_prefix())
+                .into_owned(),
+            lcs: memmem::Finder::new(lits.longest_common_suffix())
+                .into_owned(),
             matcher: matcher,
         }
     }
@@ -86,6 +94,9 @@ impl LiteralSearcher {
         match self.matcher {
             Empty => Some((0, 0)),
             Bytes(ref sset) => sset.find(haystack).map(|i| (i, i + 1)),
+            Memmem(ref f) => {
+                f.find(haystack).map(|i| (i, i + f.needle().len()))
+            }
             FreqyPacked(ref s) => s.find(haystack).map(|i| (i, i + s.len())),
             BoyerMoore(ref s) => s.find(haystack).map(|i| (i, i + s.len())),
             AC { ref ac, .. } => {
@@ -128,6 +139,7 @@ impl LiteralSearcher {
         match self.matcher {
             Matcher::Empty => LiteralIter::Empty,
             Matcher::Bytes(ref sset) => LiteralIter::Bytes(&sset.dense),
+            Matcher::Memmem(ref f) => LiteralIter::Single(f.needle()),
             Matcher::FreqyPacked(ref s) => LiteralIter::Single(&s.pat),
             Matcher::BoyerMoore(ref s) => LiteralIter::Single(&s.pattern),
             Matcher::AC { ref lits, .. } => LiteralIter::AC(lits),
@@ -135,13 +147,23 @@ impl LiteralSearcher {
         }
     }
 
+    // /// Returns a matcher for the longest common prefix of this matcher.
+    // pub fn lcp(&self) -> &FreqyPacked {
+    // &self.lcp
+    // }
+    //
+    // /// Returns a matcher for the longest common suffix of this matcher.
+    // pub fn lcs(&self) -> &FreqyPacked {
+    // &self.lcs
+    // }
+
     /// Returns a matcher for the longest common prefix of this matcher.
-    pub fn lcp(&self) -> &FreqyPacked {
+    pub fn lcp(&self) -> &memmem::Finder<'static> {
         &self.lcp
     }
 
     /// Returns a matcher for the longest common suffix of this matcher.
-    pub fn lcs(&self) -> &FreqyPacked {
+    pub fn lcs(&self) -> &memmem::Finder<'static> {
         &self.lcs
     }
 
@@ -156,6 +178,7 @@ impl LiteralSearcher {
         match self.matcher {
             Empty => 0,
             Bytes(ref sset) => sset.dense.len(),
+            Memmem(_) => 1,
             FreqyPacked(_) => 1,
             BoyerMoore(_) => 1,
             AC { ref ac, .. } => ac.pattern_count(),
@@ -169,6 +192,7 @@ impl LiteralSearcher {
         match self.matcher {
             Empty => 0,
             Bytes(ref sset) => sset.approximate_size(),
+            Memmem(ref single) => single.needle().len(),
             FreqyPacked(ref single) => single.approximate_size(),
             BoyerMoore(ref single) => single.approximate_size(),
             AC { ref ac, .. } => ac.heap_bytes(),
@@ -209,7 +233,10 @@ impl Matcher {
             if BoyerMooreSearch::should_use(lit.as_slice()) {
                 return Matcher::BoyerMoore(BoyerMooreSearch::new(lit));
             } else {
-                return Matcher::FreqyPacked(FreqyPacked::new(lit));
+                // return Matcher::FreqyPacked(FreqyPacked::new(lit));
+                return Matcher::Memmem(
+                    memmem::Finder::new(&lit).into_owned(),
+                );
             }
         }
 
