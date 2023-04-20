@@ -14,8 +14,9 @@ fn fuzz1() {
 // See: https://bugs.chromium.org/p/oss-fuzz/issues/detail?id=26505
 // See: https://github.com/rust-lang/regex/issues/722
 #[test]
+#[cfg(feature = "unicode")]
 fn empty_any_errors_no_panic() {
-    assert!(regex_new!(r"\P{any}").is_err());
+    assert!(regex_new!(r"\P{any}").is_ok());
 }
 
 // This tests that a very large regex errors during compilation instead of

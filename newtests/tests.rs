@@ -1,5 +1,6 @@
 mod bytes;
 mod bytes_set;
+mod misc;
 mod string;
 mod string_set;
 
